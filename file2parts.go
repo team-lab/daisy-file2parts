@@ -118,7 +118,7 @@ func main() {
 // create default configuration
 func createConfig() *config {
 	return &config{
-		FileName: "file2partconf.json",
+		FileName: "file2parts.json",
 		Settings: settings{
 			MySQL: mySQLSettings{
 				Host:     "127.0.0.1",
