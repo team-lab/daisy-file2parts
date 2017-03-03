@@ -9,9 +9,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-fsnotify/fsnotify"
 	_ "github.com/go-sql-driver/mysql"
+	redis "gopkg.in/redis.v5"
 )
 
 type config struct {
@@ -21,6 +23,7 @@ type config struct {
 
 type settings struct {
 	MySQL mySQLSettings `json:"mysql"`
+	Redis redisSettings `json:"redis"`
 }
 
 type mySQLSettings struct {
@@ -31,13 +34,21 @@ type mySQLSettings struct {
 	DBName   string `json:"db_name"`
 }
 
+type redisSettings struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
+}
+
 type parts struct {
 	Path string
 	HTML string
 }
 
 const (
-	partExt = ".volt"
+	partExt     = ".volt"
+	redisPrefix = "daisy-cms:parts-html-"
 )
 
 var (
@@ -71,41 +82,68 @@ func main() {
 		log.Fatal("failed to save configuration file: ", err)
 	}
 
-	db, err := getDB(conf.Settings.MySQL)
-	if err != nil {
-		log.Fatal("failed to connect MySQL: ", err)
-	}
-	defer db.Close()
-
-	ps, err := fetchAllParts(db)
-	if err != nil {
-		log.Fatal("failed to connect MySQL: ", err)
-	}
-
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal("failed to get current directory: ", err)
 	}
 
 	if *dump {
+		db, err := getDB(conf.Settings.MySQL)
+		if err != nil {
+			log.Fatal("failed to connect MySQL: ", err)
+		}
+
+		defer db.Close()
+
+		ps, err := fetchAllParts(db)
+		if err != nil {
+			log.Fatal("failed to connect MySQL: ", err)
+		}
+
 		err = saveExistingParts(dir, ps)
 		if err != nil {
 			log.Fatal("failed to save parts: ", err)
 		}
 	} else if *dumpAll {
+		db, err := getDB(conf.Settings.MySQL)
+		if err != nil {
+			log.Fatal("failed to connect MySQL: ", err)
+		}
+
+		defer db.Close()
+
+		ps, err := fetchAllParts(db)
+		if err != nil {
+			log.Fatal("failed to connect MySQL: ", err)
+		}
+
 		err = saveAllParts(dir, ps)
 		if err != nil {
 			log.Fatal("failed to save parts: ", err)
 		}
 	} else if *restore || *restoreAndWatch || *watch {
+		db, err := getDB(conf.Settings.MySQL)
+		if err != nil {
+			log.Fatal("failed to connect MySQL: ", err)
+		}
+
+		defer db.Close()
+
+		rc := getRedis(conf.Settings.Redis)
+		_, err = rc.Ping().Result()
+		if err != nil {
+			log.Fatal("failed to connect redis: ", err)
+		}
+		defer rc.Close()
+
 		if *restore || *restoreAndWatch {
-			err = restorePartsFiles(db, dir)
+			err = restorePartsFiles(db, rc, dir)
 			if err != nil {
 				log.Fatal("failed to restore parts: ", err)
 			}
 		}
 		if *watch || *restoreAndWatch {
-			err = watchParts(db, dir)
+			err = watchParts(db, rc, dir)
 			if err != nil {
 				log.Fatal("failed to restore parts: ", err)
 			}
@@ -126,6 +164,12 @@ func createConfig() *config {
 				User:     "daisy",
 				Password: "team-lab",
 				DBName:   "daisy_cms",
+			},
+			Redis: redisSettings{
+				Host:     "127.0.0.1",
+				Port:     6379,
+				Password: "",
+				DB:       0,
 			},
 		},
 	}
@@ -164,6 +208,16 @@ func saveConfig(conf *config) error {
 func getDB(mysql mySQLSettings) (*sql.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", mysql.User, mysql.Password, mysql.Host, mysql.Port, mysql.DBName)
 	return sql.Open("mysql", dsn)
+}
+
+// create redis
+func getRedis(rs redisSettings) *redis.Client {
+	addr := fmt.Sprintf("%s:%d", rs.Host, rs.Port)
+	return redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: rs.Password,
+		DB:       rs.DB,
+	})
 }
 
 // request all parts from DB
@@ -220,16 +274,17 @@ func saveExistingParts(dir string, ps []parts) error {
 	return nil
 }
 
-func restorePartsFiles(db *sql.DB, dir string) error {
+func restorePartsFiles(db *sql.DB, rc *redis.Client, dir string) error {
 	files, err := findFileParts(dir)
 	if err != nil {
 		return err
 	}
 
-	err = restoreParts(db, dir, files)
+	err = restoreParts(db, rc, dir, files)
 	if err != nil {
-		return nil
+		return err
 	}
+
 	return nil
 }
 
@@ -247,6 +302,7 @@ func findFileParts(dir string) ([]string, error) {
 		if fn[:1] == "." {
 			continue
 		}
+
 		if fi.IsDir() {
 			// find subdirectory
 			dps, err := findFileParts(filename)
@@ -260,24 +316,28 @@ func findFileParts(dir string) ([]string, error) {
 			if ext != partExt {
 				continue
 			}
+
 			ps = append(ps, filename)
 		}
 	}
+
 	return ps, nil
 }
 
 // restore parts from part file list
-func restoreParts(db *sql.DB, dir string, partsfiles []string) error {
+func restoreParts(db *sql.DB, rc *redis.Client, dir string, partsfiles []string) error {
+	fmt.Println(len(partsfiles))
 	for _, file := range partsfiles {
 		p, err := file2Parts(dir, file)
 		if err != nil {
 			return err
 		}
-		err = updateParts(db, p)
+		fmt.Println(file)
+
+		err = updateParts(db, rc, p)
 		if err != nil {
 			return err
 		}
-
 	}
 	return nil
 }
@@ -294,7 +354,7 @@ func file2Parts(dir string, file string) (*parts, error) {
 		return nil, fmt.Errorf("invaild filename")
 	}
 
-	pp = partsPath[:(len(partsPath) - len(partExt))]
+	pp := partsPath[:(len(partsPath) - len(partExt))]
 	// windows directory delimiter is "\"
 	p.Path = strings.Join(filepath.SplitList(pp), "/")
 
@@ -308,16 +368,22 @@ func file2Parts(dir string, file string) (*parts, error) {
 }
 
 // update database to parts
-func updateParts(db *sql.DB, p *parts) error {
+func updateParts(db *sql.DB, rc *redis.Client, p *parts) error {
 	_, err := db.Exec("UPDATE parts SET path = ?, html = ? WHERE path = ?", p.Path, p.HTML, p.Path)
 	if err != nil {
 		return fmt.Errorf("failed to update parts: %v", err)
+	}
+	fmt.Println(p.Path)
+
+	ic := rc.Del(redisPrefix + p.Path)
+	if err = ic.Err(); err != nil {
+		return fmt.Errorf("failed to clear redis cache: %v", err)
 	}
 	return nil
 }
 
 // watch and restore
-func watchParts(db *sql.DB, dir string) error {
+func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("failed to watch parts files: %v", err)
@@ -333,22 +399,29 @@ func watchParts(db *sql.DB, dir string) error {
 					log.Println("Modified file: ", event.Name)
 					ok, err := isWatchFile(dir, event.Name)
 					if err != nil {
-						log.Println("error")
+						log.Printf("failed to update parts: %v", err)
+						done <- true
+						return
 					}
 					if ok {
 						p, err := file2Parts(dir, event.Name)
 						if err != nil {
 							log.Println("failed to load parts")
+							done <- true
+							return
 						}
-						err = updateParts(db, p)
+						err = updateParts(db, rc, p)
 						if err != nil {
-							log.Println("failed to update parts")
+							log.Printf("failed to update parts: %v", err)
+							done <- true
+							return
 						}
 					}
 				}
 			case err := <-watcher.Errors:
-				log.Println("error: ", err)
+				log.Printf("error: %v", err)
 				done <- true
+				return
 			}
 		}
 	}()
