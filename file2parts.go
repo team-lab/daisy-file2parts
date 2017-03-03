@@ -99,7 +99,8 @@ func main() {
 			if err != nil {
 				log.Fatal("failed to restore parts: ", err)
 			}
-		} else if *watch || *restoreAndWatch {
+		}
+		if *watch || *restoreAndWatch {
 			err = watchParts(db, dir)
 			if err != nil {
 				log.Fatal("failed to restore parts: ", err)
