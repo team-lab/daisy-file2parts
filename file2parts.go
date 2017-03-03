@@ -318,13 +318,13 @@ func watchParts(db *sql.DB, dir string) error {
 	}
 	defer watcher.Close()
 
-    done := make(chan bool)
+	done := make(chan bool)
 	go func() {
-        for {
-            select {
-            case event := <-watcher.Events:
-                if event.Op & fsnotify.Write == fsnotify.Write {
-                    log.Println("Modified file: ", event.Name)
+		for {
+			select {
+			case event := <-watcher.Events:
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					log.Println("Modified file: ", event.Name)
 					ok, err := isWatchFile(dir, event.Name)
 					if err != nil {
 						log.Println("error")
@@ -339,21 +339,21 @@ func watchParts(db *sql.DB, dir string) error {
 							log.Println("failed to update parts")
 						}
 					}
-                }
-            case err := <-watcher.Errors:
+				}
+			case err := <-watcher.Errors:
 				log.Println("error: ", err)
-                done <-true
-            }
-        }
-    }()
+				done <- true
+			}
+		}
+	}()
 
 	err = watcher.Add(dir)
-    if err != nil {
-        return fmt.Errorf("cannot watch dir %s: %v", err)
-    }
+	if err != nil {
+		return fmt.Errorf("cannot watch dir %s: %v", err)
+	}
 
 	fmt.Println("watching midifed parts files...")
-    <-done
+	<-done
 
 	return nil
 }
