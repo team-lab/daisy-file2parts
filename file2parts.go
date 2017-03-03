@@ -36,6 +36,10 @@ type parts struct {
 	HTML string
 }
 
+const (
+	partExt = ".volt"
+)
+
 var (
 	dump            = flag.Bool("d", false, "dump parts that exist as files from database")
 	dumpAll         = flag.Bool("da", false, "dump all parts from database")
@@ -239,7 +243,7 @@ func findFileParts(dir string) ([]string, error) {
 	for _, fi := range fis {
 		fn := fi.Name()
 		filename := filepath.Join(dir, fn)
-		// ignore hidden diles
+		// ignore hidden directory
 		if fn[:1] == "." {
 			continue
 		}
@@ -253,7 +257,7 @@ func findFileParts(dir string) ([]string, error) {
 		} else {
 			ext := filepath.Ext(filename)
 			// get volt file only
-			if ext != ".volt" {
+			if ext != partExt {
 				continue
 			}
 			ps = append(ps, filename)
@@ -286,12 +290,13 @@ func file2Parts(dir string, file string) (*parts, error) {
 	}
 	partsPath := file[len(dir)+1:]
 
-	ext := ".volt"
-	if len(dir) < len(ext) && partsPath[:len(ext)] != ext {
+	if len(dir) < len(partExt) && partsPath[:len(partExt)] != partExt {
 		return nil, fmt.Errorf("invaild filename")
 	}
 
-	p.Path = partsPath[:(len(partsPath) - len(ext))]
+	pp = partsPath[:(len(partsPath) - len(partExt))]
+	// windows directory delimiter is "\"
+	p.Path = strings.Join(filepath.SplitList(pp), "/")
 
 	b, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -365,8 +370,7 @@ func isWatchFile(dir string, file string) (bool, error) {
 	}
 	partsPath := file[len(dir)+1:]
 
-	ext := ".volt"
-	if len(dir) < len(ext) && partsPath[:len(ext)] != ext {
+	if len(dir) < len(partExt) && partsPath[:len(partExt)] != partExt {
 		return false, nil
 	}
 
@@ -376,7 +380,5 @@ func isWatchFile(dir string, file string) (bool, error) {
 			return false, nil
 		}
 	}
-	partsPath = partsPath[:(len(partsPath) - len(ext))]
-
 	return true, nil
 }
