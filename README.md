@@ -30,6 +30,7 @@ file2parts
 
 ```
 Usage of file2parts:
+  -confing: config file name
   -d:  dump parts that exist as files from database
   -da: dump all parts from database
   -r:  restore parts to database
