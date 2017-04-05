@@ -52,6 +52,7 @@ const (
 )
 
 var (
+	configFileName  = flag.String("config", "file2parts.json", "config file name")
 	dump            = flag.Bool("d", false, "dump parts that exist as files from database")
 	dumpAll         = flag.Bool("da", false, "dump all parts from database")
 	restore         = flag.Bool("r", false, "restore parts to database")
@@ -63,11 +64,12 @@ var (
 func main() {
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, `Usage of file2parts:
-  -d:  dump parts that exist as files from database
-  -da: dump all parts from database
-  -r:  restore parts to database
-  -w:  watch and restore modified part file
-  -rw: alias of "-r -w"
+  -config: config file name
+  -d:      dump parts that exist as files from database
+  -da:     dump all parts from database
+  -r:      restore parts to database
+  -w:      watch and restore modified part file
+  -rw:     alias of "-r -w"
 `)
 	}
 	flag.Parse()
@@ -156,7 +158,7 @@ func main() {
 // create default configuration
 func createConfig() *config {
 	return &config{
-		FileName: "file2parts.json",
+		FileName: *configFileName,
 		Settings: settings{
 			MySQL: mySQLSettings{
 				Host:     "127.0.0.1",
@@ -183,12 +185,12 @@ func loadConfig() (*config, error) {
 	b, err := ioutil.ReadFile(filename)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
-	} else {
-		if b != nil {
-			err = json.Unmarshal(b, &conf.Settings)
-			if err != nil {
-				return nil, fmt.Errorf("could not deconde json: %v", err)
-			}
+	}
+
+	if b != nil {
+		err = json.Unmarshal(b, &conf.Settings)
+		if err != nil {
+			return nil, fmt.Errorf("could not deconde json: %v", err)
 		}
 	}
 	return conf, nil
@@ -428,7 +430,7 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 
 	err = watcher.Add(dir)
 	if err != nil {
-		return fmt.Errorf("cannot watch dir %s: %v", err)
+		return fmt.Errorf("cannot watch directory: %v", err)
 	}
 
 	fmt.Println("watching midifed parts files...")
