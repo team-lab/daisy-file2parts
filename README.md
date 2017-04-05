@@ -12,12 +12,13 @@ file2parts
 ## ダウンロード
 
 | OS | URL |
-|:--:|:---:|
-| windows | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/windows-amd64/file2parts.exe |
-| Mac OS | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/darwin-amd64/file2parts |
-| Linux | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/linux-amd64/file2parts |
-
-※すべて amd64 向けです
+|---|---|
+| windows 64-bit x86 | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/windows-amd64/file2parts.exe |
+| windows 32-bit x86 | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/windows-386/file2parts.exe |
+| Mac OS 64-bit x86 | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/darwin-amd64/file2parts |
+| Mac OS 32-bit x86 | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/darwin-386/file2parts |
+| Linux 64-bit x86 | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/linux-amd64/file2parts |
+| Linux 32-bit x86 | http://raw.github.team-lab.local/twakayama/daisy-file2parts/master/build/linux-386/file2parts |
 
 ## 使い方
 
