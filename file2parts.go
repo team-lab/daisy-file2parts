@@ -134,7 +134,7 @@ func main() {
 		rc := getRedis(conf.Settings.Redis)
 		_, err = rc.Ping().Result()
 		if err != nil {
-			log.Fatal("failed to connect redis: ", err)
+			log.Printf("failed to connect redis: %v", err)
 		}
 		defer rc.Close()
 
@@ -293,34 +293,25 @@ func restorePartsFiles(db *sql.DB, rc *redis.Client, dir string) error {
 // get all volt file in dir
 func findFileParts(dir string) ([]string, error) {
 	ps := make([]string, 0)
-	fis, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file or directory \"%s\": %v", dir, err)
-	}
-	for _, fi := range fis {
-		fn := fi.Name()
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		fn := info.Name()
 		filename := filepath.Join(dir, fn)
 		// ignore hidden directory
 		if fn[:1] == "." {
-			continue
+			return nil
 		}
 
-		if fi.IsDir() {
-			// find subdirectory
-			dps, err := findFileParts(filename)
-			if err != nil {
-				return nil, err
-			}
-			ps = append(ps, dps...)
-		} else {
-			ext := filepath.Ext(filename)
-			// get volt file only
-			if ext != partExt {
-				continue
-			}
-
+		if !info.IsDir() {
 			ps = append(ps, filename)
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file or directory \"%s\": %v", dir, err)
 	}
 
 	return ps, nil
@@ -358,7 +349,7 @@ func file2Parts(dir string, file string) (*parts, error) {
 
 	pp := partsPath[:(len(partsPath) - len(partExt))]
 	// windows directory delimiter is "\"
-	p.Path = strings.Join(filepath.SplitList(pp), "/")
+	p.Path = strings.Join(strings.Split(pp, string([]rune{os.PathSeparator})), "/")
 
 	b, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -398,27 +389,23 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 			case event := <-watcher.Events:
 				var ok bool
 				if event.Op&fsnotify.Write == fsnotify.Write {
-					log.Println("Modified file: ", event.Name)
-					ok, err = isWatchFile(dir, event.Name)
+					filename := event.Name
+					log.Println("Modified file: ", filename)
+					ok, err = isWatchFile(dir, filename)
 					if err != nil {
 						log.Printf("failed to update parts: %v", err)
 						done <- true
 						return
 					}
 					if ok {
-						var p *parts
-						p, err = file2Parts(dir, event.Name)
-						if err != nil {
-							log.Println("failed to load parts")
-							done <- true
-							return
-						}
-						err = updateParts(db, rc, p)
+						filenames := []string{filename}
+						err = restoreParts(db, rc, dir, filenames)
 						if err != nil {
 							log.Printf("failed to update parts: %v", err)
 							done <- true
 							return
 						}
+						log.Printf("success\n")
 					}
 				}
 			case err = <-watcher.Errors:
@@ -458,11 +445,11 @@ func isWatchFile(dir string, file string) (bool, error) {
 	}
 	partsPath := file[len(dir)+1:]
 
-	if len(dir) < len(partExt) && partsPath[:len(partExt)] != partExt {
+	if filepath.Ext(partsPath) != partExt {
 		return false, nil
 	}
 
-	dirs := filepath.SplitList(partsPath)
+	dirs := strings.Split(partsPath, string([]rune{os.PathSeparator}))
 	for _, d := range dirs {
 		if d[:1] == "." {
 			return false, nil
