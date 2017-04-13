@@ -375,11 +375,10 @@ func updateParts(db *sql.DB, rc *redis.Client, p *parts) error {
 	if err != nil {
 		return fmt.Errorf("failed to update parts: %v", err)
 	}
-	fmt.Println(p.Path)
 
 	ic := rc.Del(redisPrefix + p.Path)
 	if err = ic.Err(); err != nil {
-		return fmt.Errorf("failed to clear redis cache: %v", err)
+		log.Printf("failed to clear redis cache: %v", err)
 	}
 	return nil
 }
@@ -397,16 +396,18 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 		for {
 			select {
 			case event := <-watcher.Events:
+				var ok bool
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					log.Println("Modified file: ", event.Name)
-					ok, err := isWatchFile(dir, event.Name)
+					ok, err = isWatchFile(dir, event.Name)
 					if err != nil {
 						log.Printf("failed to update parts: %v", err)
 						done <- true
 						return
 					}
 					if ok {
-						p, err := file2Parts(dir, event.Name)
+						var p *parts
+						p, err = file2Parts(dir, event.Name)
 						if err != nil {
 							log.Println("failed to load parts")
 							done <- true
@@ -420,7 +421,7 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 						}
 					}
 				}
-			case err := <-watcher.Errors:
+			case err = <-watcher.Errors:
 				log.Printf("error: %v", err)
 				done <- true
 				return
@@ -428,6 +429,18 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 		}
 	}()
 
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return watcher.Add(path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get dir tree: %v", err)
+	}
 	err = watcher.Add(dir)
 	if err != nil {
 		return fmt.Errorf("cannot watch directory: %v", err)
