@@ -298,15 +298,17 @@ func findFileParts(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		fn := info.Name()
-		filename := filepath.Join(dir, fn)
-		// ignore hidden directory
-		if fn[:1] == "." {
+
+		if dir == path {
 			return nil
+		}
+		ok, err := isPartFile(dir, path)
+		if err != nil || !ok {
+		  return nil
 		}
 
 		if !info.IsDir() {
-			ps = append(ps, filename)
+			ps = append(ps, path)
 		}
 		return nil
 	})
@@ -319,13 +321,11 @@ func findFileParts(dir string) ([]string, error) {
 
 // restore parts from part file list
 func restoreParts(db *sql.DB, rc *redis.Client, dir string, partsfiles []string) error {
-	fmt.Println(len(partsfiles))
 	for _, file := range partsfiles {
 		p, err := file2Parts(dir, file)
 		if err != nil {
 			return err
 		}
-		fmt.Println(file)
 
 		err = updateParts(db, rc, p)
 		if err != nil {
@@ -391,7 +391,7 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					filename := event.Name
 					log.Println("Modified file: ", filename)
-					ok, err = isWatchFile(dir, filename)
+					ok, err = isPartFile(dir, filename)
 					if err != nil {
 						log.Printf("failed to update parts: %v", err)
 						done <- true
@@ -420,8 +420,15 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 		if err != nil {
 			return err
 		}
+
 		if info.IsDir() {
-			return watcher.Add(path)
+			ok, err := isPartPath(dir, path);
+			if err != nil {
+				return err
+			}
+			if ok {
+				return watcher.Add(path)
+			}
 		}
 		return nil
 	})
@@ -433,15 +440,36 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 		return fmt.Errorf("cannot watch directory: %v", err)
 	}
 
-	fmt.Println("watching midifed parts files...")
+	log.Println("watching midifed parts files...")
 	<-done
 
 	return nil
 }
 
-func isWatchFile(dir string, file string) (bool, error) {
-	if len(file) < len(dir) && file[:len(dir)] != dir {
+func isPartPath(dir string, file string) (bool, error) {
+	if len(file) < len(dir) || file[:len(dir)] != dir {
+		return false, fmt.Errorf("invaild dir path")
+	}
+	if len(file) < len(dir) + 1 {
+		return true, nil
+	}
+	partsPath := file[len(dir)+1:]
+
+	dirs := strings.Split(partsPath, string([]rune{os.PathSeparator}))
+	for _, d := range dirs {
+		if len(d) < 1 || d[:1] == "." {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func isPartFile(dir string, file string) (bool, error) {
+	if len(file) < len(dir) || file[:len(dir)] != dir {
 		return false, fmt.Errorf("invaild file path")
+	}
+	if len(file) < len(dir) + 1 {
+		return false, nil
 	}
 	partsPath := file[len(dir)+1:]
 
@@ -451,7 +479,7 @@ func isWatchFile(dir string, file string) (bool, error) {
 
 	dirs := strings.Split(partsPath, string([]rune{os.PathSeparator}))
 	for _, d := range dirs {
-		if d[:1] == "." {
+		if len(d) < 1 || d[:1] == "." {
 			return false, nil
 		}
 	}
