@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-fsnotify/fsnotify"
 	_ "github.com/go-sql-driver/mysql"
@@ -24,6 +25,7 @@ type config struct {
 type settings struct {
 	MySQL mySQLSettings `json:"mysql"`
 	Redis redisSettings `json:"redis"`
+	User  userSettings  `json:"user"`
 }
 
 type mySQLSettings struct {
@@ -39,6 +41,11 @@ type redisSettings struct {
 	Port     int    `json:"port"`
 	Password string `json:"password"`
 	DB       int    `json:"db"`
+}
+
+type userSettings struct {
+	Name string `json:"user_name"`
+	ID   int    `json:"user_id"`
 }
 
 type parts struct {
@@ -139,13 +146,13 @@ func main() {
 		defer rc.Close()
 
 		if *restore || *restoreAndWatch {
-			err = restorePartsFiles(db, rc, dir)
+			err = restorePartsFiles(db, rc, dir, conf.Settings.User)
 			if err != nil {
 				log.Fatal("failed to restore parts: ", err)
 			}
 		}
 		if *watch || *restoreAndWatch {
-			err = watchParts(db, rc, dir)
+			err = watchParts(db, rc, dir, conf.Settings.User)
 			if err != nil {
 				log.Fatal("failed to restore parts: ", err)
 			}
@@ -172,6 +179,10 @@ func createConfig() *config {
 				Port:     6379,
 				Password: "",
 				DB:       0,
+			},
+			User: userSettings{
+				Name: "f2p",
+				ID:   0,
 			},
 		},
 	}
@@ -276,13 +287,13 @@ func saveExistingParts(dir string, ps []parts) error {
 	return nil
 }
 
-func restorePartsFiles(db *sql.DB, rc *redis.Client, dir string) error {
+func restorePartsFiles(db *sql.DB, rc *redis.Client, dir string, user userSettings) error {
 	files, err := findFileParts(dir)
 	if err != nil {
 		return err
 	}
 
-	err = restoreParts(db, rc, dir, files)
+	err = restoreParts(db, rc, dir, files, user)
 	if err != nil {
 		return err
 	}
@@ -304,7 +315,7 @@ func findFileParts(dir string) ([]string, error) {
 		}
 		ok, err := isPartFile(dir, path)
 		if err != nil || !ok {
-		  return nil
+			return nil
 		}
 
 		if !info.IsDir() {
@@ -320,14 +331,14 @@ func findFileParts(dir string) ([]string, error) {
 }
 
 // restore parts from part file list
-func restoreParts(db *sql.DB, rc *redis.Client, dir string, partsfiles []string) error {
+func restoreParts(db *sql.DB, rc *redis.Client, dir string, partsfiles []string, user userSettings) error {
 	for _, file := range partsfiles {
 		p, err := file2Parts(dir, file)
 		if err != nil {
 			return err
 		}
 
-		err = updateParts(db, rc, p)
+		err = updateParts(db, rc, p, user)
 		if err != nil {
 			return err
 		}
@@ -361,8 +372,21 @@ func file2Parts(dir string, file string) (*parts, error) {
 }
 
 // update database to parts
-func updateParts(db *sql.DB, rc *redis.Client, p *parts) error {
-	_, err := db.Exec("UPDATE parts SET path = ?, html = ? WHERE path = ?", p.Path, p.HTML, p.Path)
+func updateParts(db *sql.DB, rc *redis.Client, p *parts, user userSettings) error {
+	sql := `
+UPDATE
+	parts
+SET
+	path = ?,
+	html = ?,
+	updated_at = ?,
+	updated_by = ?,
+	updated_by_id = ?
+WHERE
+	path = ?
+`
+	timeNow := time.Now().Format("2006-01-02 15:04:05")
+	_, err := db.Exec(sql, p.Path, p.HTML, timeNow, user.Name, user.ID, p.Path)
 	if err != nil {
 		return fmt.Errorf("failed to update parts: %v", err)
 	}
@@ -375,7 +399,7 @@ func updateParts(db *sql.DB, rc *redis.Client, p *parts) error {
 }
 
 // watch and restore
-func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
+func watchParts(db *sql.DB, rc *redis.Client, dir string, user userSettings) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("failed to watch parts files: %v", err)
@@ -399,7 +423,7 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 					}
 					if ok {
 						filenames := []string{filename}
-						err = restoreParts(db, rc, dir, filenames)
+						err = restoreParts(db, rc, dir, filenames, user)
 						if err != nil {
 							log.Printf("failed to update parts: %v", err)
 							done <- true
@@ -422,7 +446,7 @@ func watchParts(db *sql.DB, rc *redis.Client, dir string) error {
 		}
 
 		if info.IsDir() {
-			ok, err := isPartPath(dir, path);
+			ok, err := isPartPath(dir, path)
 			if err != nil {
 				return err
 			}
@@ -450,7 +474,7 @@ func isPartPath(dir string, file string) (bool, error) {
 	if len(file) < len(dir) || file[:len(dir)] != dir {
 		return false, fmt.Errorf("invaild dir path")
 	}
-	if len(file) < len(dir) + 1 {
+	if len(file) < len(dir)+1 {
 		return true, nil
 	}
 	partsPath := file[len(dir)+1:]
@@ -464,11 +488,12 @@ func isPartPath(dir string, file string) (bool, error) {
 	return true, nil
 }
 
+// パーツファイルかどうか検証する
 func isPartFile(dir string, file string) (bool, error) {
 	if len(file) < len(dir) || file[:len(dir)] != dir {
 		return false, fmt.Errorf("invaild file path")
 	}
-	if len(file) < len(dir) + 1 {
+	if len(file) < len(dir)+1 {
 		return false, nil
 	}
 	partsPath := file[len(dir)+1:]

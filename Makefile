@@ -9,10 +9,8 @@ run:
 	go run ./file2parts.go
 
 build:
-	if [ ! -e ./build/release ] ; \
-	then \
-	     mkdir ./build/release ; \
-	fi;
+	if [ ! -e ./build ]; then mkdir ./build; fi;
+	if [ ! -e ./build/release ]; then mkdir ./build/release; fi;
 	GOARCH=amd64 GOOS=windows go build -o ./build/windows-amd64/file2parts.exe file2parts.go
 	zip ./build/release/windows_amd64.zip ./build/windows-amd64/file2parts.exe
 	GOARCH=amd64 GOOS=darwin go build -o ./build/darwin-amd64/file2parts file2parts.go

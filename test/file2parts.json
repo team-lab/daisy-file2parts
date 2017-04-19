@@ -11,5 +11,9 @@
 		"port": 6379,
 		"password": "",
 		"db": 0
+	},
+	"user": {
+		"user_name": "f2p",
+		"user_id": 0
 	}
 }
