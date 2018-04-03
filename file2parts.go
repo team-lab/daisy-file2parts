@@ -385,11 +385,39 @@ SET
 WHERE
 	path = ?
 `
+	sql_ver := `
+UPDATE
+	parts_versions
+SET
+	path = ?,
+	html = ?,
+	updated_at = ?,
+	updated_by = ?,
+	updated_by_id = ?
+WHERE
+	id = ?
+`
+	var publishVersionId int
 	timeNow := time.Now().Format("2006-01-02 15:04:05")
-	_, err := db.Exec(sql, p.Path, p.HTML, timeNow, user.Name, user.ID, p.Path)
+
+	if err := db.QueryRow("SELECT version_id FROM parts WHERE path = ? LIMIT 1", p.Path).Scan(&publishVersionId); err != nil {
+		return fmt.Errorf("failed to get parts_id: %v", err)
+	}
+	tx, err := db.Begin()
 	if err != nil {
+		return fmt.Errorf("failed to start transaction of parts update: %v", err)
+	}
+	_, err = db.Exec(sql, p.Path, p.HTML, timeNow, user.Name, user.ID, p.Path)
+	if err != nil {
+		tx.Rollback()
 		return fmt.Errorf("failed to update parts: %v", err)
 	}
+	_, err = db.Exec(sql_ver, p.Path, p.HTML, timeNow, user.Name, user.ID, publishVersionId)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to update parts_versions: %v", err)
+	}
+	tx.Commit()
 
 	ic := rc.Del(redisPrefix + p.Path)
 	if err = ic.Err(); err != nil {
