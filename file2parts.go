@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-fsnotify/fsnotify"
+	"github.com/fsnotify/fsnotify"
 	_ "github.com/go-sql-driver/mysql"
 	redis "gopkg.in/redis.v5"
 )
