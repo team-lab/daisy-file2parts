@@ -63,10 +63,22 @@ bind 0.0.0.0
 
 ## 開発用メモ
 
-TODO: Makefile書きかけ... depとか入れたい
+goの開発環境が必要です
 
 ```
-go get github.com/go-sql-driver/mysql
-go get github.com/go-fsnotify/fsnotify
-go get gopkg.in/redis.v5
+# リポジトリ取得
+# できなさそうな時はこのあたりを参考 http://jnst.hateblo.jp/entry/2016/10/17/210612
+go get github.com/team-lab/daisy-file2parts
+
+# 依存解決
+dep ensure
+
+# ソースコードのフォーマット整形
+make fmt
+
+# ソース実行
+make run
+
+# ビルド、成果物生成
+make build
 ```

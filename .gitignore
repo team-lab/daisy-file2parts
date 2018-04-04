@@ -1,3 +1,4 @@
 file2partconf.json
 *.volt
 build/*
+vendor/*
