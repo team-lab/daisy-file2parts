@@ -401,7 +401,7 @@ WHERE
 	timeNow := time.Now().Format("2006-01-02 15:04:05")
 
 	if err := db.QueryRow("SELECT version_id FROM parts WHERE path = ? LIMIT 1", p.Path).Scan(&publishVersionId); err != nil {
-		return fmt.Errorf("failed to get parts_id: %v", err)
+		return fmt.Errorf("failed to get parts_id: %v path:%s", err, p.Path)
 	}
 	tx, err := db.Begin()
 	if err != nil {
