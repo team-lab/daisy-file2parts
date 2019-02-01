@@ -2,14 +2,14 @@
 	"mysql": {
 		"host": "127.0.0.1",
 		"port": 3306,
-		"user": "daisy",
-		"password": "team-lab",
-		"db_name": "daisy_cms"
+		"user": "********",
+		"password": "*****************",
+		"db_name": "********"
 	},
 	"redis": {
 		"host": "127.0.0.1",
 		"port": 6379,
-		"password": "",
+		"password": "*****************",
 		"db": 0
 	}
 }
